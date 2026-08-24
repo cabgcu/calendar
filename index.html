@@ -1,1 +1,574 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CAB GCU — Events Calendar</title>
 
+    <!-- Supabase JS Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        night: { 950: '#020617', 900: '#0f172a', 800: '#1e293b' }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+        body {
+            font-family: "Inter", sans-serif;
+            background: #020617;
+        }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(15,23,42,0.5); }
+        ::-webkit-scrollbar-thumb { background: rgba(167,139,250,0.3); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(167,139,250,0.6); }
+
+        .night-bg {
+            position: fixed; inset: 0; width: 100vw; height: 100vh;
+            object-fit: cover; z-index: -2; background-color: #020617;
+        }
+
+        .night-overlay {
+            position: fixed; inset: 0;
+            background: radial-gradient(circle at center, transparent 0%, #020617 150%);
+            opacity: 0.9; z-index: -1; pointer-events: none;
+        }
+
+        .night-glass-card {
+            background: rgba(15, 23, 42, 0.45);
+            backdrop-filter: blur(30px);
+            -webkit-backdrop-filter: blur(30px);
+            border: 1px solid rgba(167, 139, 250, 0.3);
+            box-shadow: 0 50px 100px rgba(0, 0, 0, 0.65), 0 0 80px rgba(124, 58, 237, 0.25);
+        }
+
+        .night-glass-card-subtle {
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            border: 1px solid rgba(167, 139, 250, 0.25);
+        }
+
+        .night-btn-primary {
+            background: linear-gradient(135deg, #a855f7, #6366f1, #2563eb);
+            color: white;
+            box-shadow: 0 15px 35px rgba(99, 102, 241, 0.45);
+            transition: all 0.3s ease;
+        }
+        .night-btn-primary:hover { transform: translateY(-2px); box-shadow: 0 20px 45px rgba(99, 102, 241, 0.65); }
+        .night-btn-primary:disabled { opacity: 0.5; pointer-events: none; }
+
+        .night-btn-link {
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(167, 139, 250, 0.3);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .night-btn-link:hover {
+            background: rgba(30, 41, 59, 0.8);
+            border-color: rgba(168, 85, 247, 0.7);
+        }
+
+        .logo-box { position: relative; display: flex; justify-content: center; align-items: center; }
+        .logo-box::before {
+            content: ""; position: absolute; width: 70px; height: 70px; border-radius: 50%;
+            background: radial-gradient(circle, rgba(168, 85, 247, 0.85), rgba(99, 102, 241, 0.65), rgba(37, 99, 235, 0.4), transparent 75%);
+            filter: blur(20px); animation: logoGlowPulse 4s infinite ease-in-out; pointer-events: none;
+        }
+        @keyframes logoGlowPulse { 0%, 100% { transform: scale(1); opacity: 0.8; } 50% { transform: scale(1.22); opacity: 1; } }
+
+        .tab-btn { transition: all 0.25s ease; }
+        .tab-btn.active { background: linear-gradient(135deg, #a855f7, #6366f1, #2563eb); color: #fff; box-shadow: 0 10px 25px rgba(99,102,241,0.4); }
+        .tab-btn:not(.active) { color: rgba(216,180,254,0.7); }
+
+        .day-cell { transition: all 0.2s ease; cursor: pointer; }
+        .day-cell:hover:not(.day-cell-empty) { background: rgba(167,139,250,0.12); transform: translateY(-1px); }
+        .day-cell.has-events { border-color: rgba(168,85,247,0.5); }
+        .day-cell.is-today { box-shadow: inset 0 0 0 2px rgba(96,165,250,0.9); }
+        .day-cell.is-selected { background: rgba(124,58,237,0.35) !important; border-color: rgba(168,85,247,0.9) !important; }
+        .day-cell.day-cell-empty { cursor: default; opacity: 0.25; }
+
+        .event-dot { width: 5px; height: 5px; border-radius: 50%; background: linear-gradient(135deg,#c084fc,#818cf8); }
+
+        .addcal-item {
+            display: flex; align-items: center; gap: 0.5rem;
+            padding: 0.5rem 0.65rem; border-radius: 0.65rem;
+            font-size: 0.72rem; font-weight: 600; color: rgba(233,213,255,0.9);
+            transition: all 0.15s ease;
+        }
+        .addcal-item:hover { background: rgba(168,85,247,0.2); color: #fff; }
+
+        .loader { width: 18px; height: 18px; border: 2.5px solid #fff; border-bottom-color: transparent; border-radius: 50%; animation: smooth-spin 0.8s linear infinite; }
+        @keyframes smooth-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        .fade-in { animation: fadeIn 0.35s ease both; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="text-white min-h-[100dvh] w-full relative overflow-x-hidden selection:bg-purple-500/30 font-sans antialiased">
+
+    <video id="bgVideo" class="night-bg" autoplay loop muted playsinline style="display:none;">
+        <source id="bgVideoSource" src="" type="video/mp4">
+    </video>
+    <div class="night-overlay"></div>
+
+    <div class="relative w-full max-w-5xl mx-auto z-10 px-4 sm:px-8 py-8 sm:py-12 flex flex-col gap-6 sm:gap-8">
+
+        <!-- Header -->
+        <header class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div class="flex items-center gap-4">
+                <div class="logo-box">
+                    <img id="portalAvatar" src="https://i.imgur.com/p2qZOL5.png" alt="CAB GCU" class="w-12 h-12 object-contain relative z-10 drop-shadow-[0_10px_20px_rgba(0,0,0,0.8)]">
+                </div>
+                <div>
+                    <h1 id="portalTitle" class="text-2xl sm:text-3xl font-extrabold tracking-tight text-white leading-tight">CAB GCU Events</h1>
+                    <p class="text-purple-200/70 text-xs sm:text-sm font-medium">Everything happening on campus, in one place</p>
+                </div>
+            </div>
+            <a href="https://cabgcu.com" class="night-btn-link px-4 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 self-start sm:self-auto shrink-0">
+                <i data-lucide="arrow-left" class="w-3.5 h-3.5 text-purple-300"></i> Back to Portal
+            </a>
+        </header>
+
+        <!-- Tabs -->
+        <div class="flex gap-2 night-glass-card-subtle p-1.5 rounded-2xl w-fit">
+            <button id="tabCalendarBtn" class="tab-btn active px-4 sm:px-5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2" onclick="switchTab('calendar')">
+                <i data-lucide="calendar-days" class="w-4 h-4"></i> Calendar
+            </button>
+            <button id="tabListBtn" class="tab-btn px-4 sm:px-5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2" onclick="switchTab('list')">
+                <i data-lucide="list" class="w-4 h-4"></i> Upcoming
+            </button>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loadingState" class="night-glass-card rounded-[32px] p-16 flex flex-col items-center justify-center gap-4">
+            <div class="loader" style="width:28px;height:28px;border-width:3px;"></div>
+            <p class="text-purple-200/70 text-sm font-medium">Loading events…</p>
+        </div>
+
+        <!-- Error State -->
+        <div id="errorState" class="night-glass-card rounded-[32px] p-16 flex-col items-center justify-center gap-4 text-center" style="display:none;">
+            <i data-lucide="wifi-off" class="w-10 h-10 text-purple-400/70"></i>
+            <p class="text-white font-semibold">Couldn't load events right now.</p>
+            <p class="text-purple-200/60 text-xs">Please check your connection and try again.</p>
+            <button onclick="loadData()" class="night-btn-primary px-5 py-2.5 rounded-xl text-xs font-bold mt-2">Retry</button>
+        </div>
+
+        <!-- Main Content -->
+        <main id="mainContent" style="display:none;" class="flex flex-col gap-6">
+
+            <!-- CALENDAR VIEW -->
+            <section id="calendarView" class="flex flex-col gap-6">
+                <div class="night-glass-card rounded-[32px] p-5 sm:p-8">
+                    <div class="flex items-center justify-between mb-6">
+                        <button onclick="changeMonth(-1)" class="w-9 h-9 flex items-center justify-center rounded-xl night-btn-link">
+                            <i data-lucide="chevron-left" class="w-4 h-4 text-purple-300"></i>
+                        </button>
+                        <div class="flex items-center gap-3">
+                            <h2 id="monthLabel" class="text-lg sm:text-xl font-bold text-white tracking-tight"></h2>
+                            <button onclick="goToday()" class="text-[10px] font-bold uppercase tracking-wider text-purple-300 hover:text-white bg-purple-500/15 hover:bg-purple-500/30 border border-purple-400/30 px-2.5 py-1 rounded-full transition-all">Today</button>
+                        </div>
+                        <button onclick="changeMonth(1)" class="w-9 h-9 flex items-center justify-center rounded-xl night-btn-link">
+                            <i data-lucide="chevron-right" class="w-4 h-4 text-purple-300"></i>
+                        </button>
+                    </div>
+
+                    <div class="grid grid-cols-7 gap-1 sm:gap-2 mb-2">
+                        <div class="text-center text-[10px] sm:text-xs font-bold uppercase tracking-widest text-purple-300/60 py-1">Sun</div>
+                        <div class="text-center text-[10px] sm:text-xs font-bold uppercase tracking-widest text-purple-300/60 py-1">Mon</div>
+                        <div class="text-center text-[10px] sm:text-xs font-bold uppercase tracking-widest text-purple-300/60 py-1">Tue</div>
+                        <div class="text-center text-[10px] sm:text-xs font-bold uppercase tracking-widest text-purple-300/60 py-1">Wed</div>
+                        <div class="text-center text-[10px] sm:text-xs font-bold uppercase tracking-widest text-purple-300/60 py-1">Thu</div>
+                        <div class="text-center text-[10px] sm:text-xs font-bold uppercase tracking-widest text-purple-300/60 py-1">Fri</div>
+                        <div class="text-center text-[10px] sm:text-xs font-bold uppercase tracking-widest text-purple-300/60 py-1">Sat</div>
+                    </div>
+                    <div id="calendarGrid" class="grid grid-cols-7 gap-1 sm:gap-2"></div>
+                </div>
+
+                <div id="dayEventsPanel" class="night-glass-card-subtle rounded-[28px] p-5 sm:p-7 flex flex-col gap-4"></div>
+            </section>
+
+            <!-- LIST VIEW -->
+            <section id="listView" class="night-glass-card rounded-[32px] p-5 sm:p-8" style="display:none;">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center border border-purple-400/30">
+                        <i data-lucide="calendar-clock" class="w-5 h-5 text-purple-300"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-white tracking-tight">Upcoming Events</h3>
+                </div>
+                <div id="upcomingList" class="flex flex-col gap-4"></div>
+            </section>
+        </main>
+
+        <footer class="text-center text-purple-300/40 text-[11px] tracking-wide py-4">
+            <p>© <span id="year"></span> Canyon Activities Board · GCU</p>
+        </footer>
+    </div>
+
+    <script>
+        const SUPABASE_URL = "https://nmmshjdknmuzpgpquwec.supabase.co";
+        const SUPABASE_KEY = "sb_publishable_PCxlxywY7W6K3TmMrSnSsw_NPXKugoZ";
+        const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        let EVENTS = [];
+        let EVENTS_BY_ID = {};
+        let viewDate = new Date();
+        let selectedDate = null;
+
+        document.getElementById('year').textContent = new Date().getFullYear();
+
+        function escapeHTML(str) {
+            if (!str) return '';
+            return str.toString().replace(/[&<>'"]/g, tag => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+            }[tag] || tag));
+        }
+
+        document.addEventListener('DOMContentLoaded', loadData);
+
+        async function loadData() {
+            document.getElementById('loadingState').style.display = 'flex';
+            document.getElementById('errorState').style.display = 'none';
+            document.getElementById('mainContent').style.display = 'none';
+
+            try {
+                const { data, error } = await _supabase.from('portal_config').select('*');
+                if (error) throw error;
+
+                let rawEvents = [];
+                (data || []).forEach(row => {
+                    if (row.key === 'EventsJson') rawEvents = JSON.parse(row.value || '[]');
+                    if (row.key === 'PortalName') document.getElementById('portalTitle').textContent = row.value + ' Events';
+                    if (row.key === 'AvatarUrl' && row.value) document.getElementById('portalAvatar').src = row.value;
+                    if (row.key === 'BgVideoUrl' && row.value) {
+                        const v = document.getElementById('bgVideo');
+                        document.getElementById('bgVideoSource').src = row.value;
+                        v.load();
+                        v.style.display = 'block';
+                    }
+                });
+
+                EVENTS = rawEvents.map((e, i) => {
+                    if (e.time && !e.startTime) e.startTime = e.time;
+                    if (!e.id) e.id = 'evt_' + i + '_' + Date.now().toString(36);
+                    return e;
+                });
+                EVENTS_BY_ID = {};
+                EVENTS.forEach(e => EVENTS_BY_ID[e.id] = e);
+
+                document.getElementById('loadingState').style.display = 'none';
+                document.getElementById('mainContent').style.display = 'flex';
+
+                selectedDate = todayISO();
+                renderCalendar();
+                renderUpcomingList();
+                lucide.createIcons();
+            } catch (e) {
+                console.error('Load error:', e);
+                document.getElementById('loadingState').style.display = 'none';
+                document.getElementById('errorState').style.display = 'flex';
+                lucide.createIcons();
+            }
+        }
+
+        function switchTab(tab) {
+            const isCal = tab === 'calendar';
+            document.getElementById('calendarView').style.display = isCal ? 'flex' : 'none';
+            document.getElementById('listView').style.display = isCal ? 'none' : 'block';
+            document.getElementById('tabCalendarBtn').classList.toggle('active', isCal);
+            document.getElementById('tabListBtn').classList.toggle('active', !isCal);
+        }
+
+        // ---------- Date helpers ----------
+        function todayISO() {
+            const d = new Date();
+            return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+        }
+        function pad2(n) { return n.toString().padStart(2, '0'); }
+        function dateKey(y, m, d) { return `${y}-${pad2(m + 1)}-${pad2(d)}`; }
+
+        function eventsOnDate(iso) {
+            return EVENTS.filter(e => e.date === iso).sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+        }
+
+        // ---------- Calendar Grid ----------
+        function changeMonth(delta) {
+            viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + delta, 1);
+            renderCalendar();
+        }
+
+        function goToday() {
+            viewDate = new Date();
+            selectedDate = todayISO();
+            renderCalendar();
+        }
+
+        function selectDay(iso) {
+            selectedDate = iso;
+            renderCalendar();
+        }
+
+        function renderCalendar() {
+            const year = viewDate.getFullYear();
+            const month = viewDate.getMonth();
+            document.getElementById('monthLabel').textContent = viewDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+
+            const firstDay = new Date(year, month, 1).getDay();
+            const totalDays = new Date(year, month + 1, 0).getDate();
+            const today = todayISO();
+
+            let cellsHTML = '';
+            for (let i = 0; i < firstDay; i++) {
+                cellsHTML += `<div class="day-cell day-cell-empty rounded-xl"></div>`;
+            }
+
+            for (let d = 1; d <= totalDays; d++) {
+                const iso = dateKey(year, month, d);
+                const dayEvents = eventsOnDate(iso);
+                const hasEvents = dayEvents.length > 0;
+                const isToday = iso === today;
+                const isSelected = iso === selectedDate;
+
+                cellsHTML += `
+                    <div class="day-cell ${hasEvents ? 'has-events' : ''} ${isToday ? 'is-today' : ''} ${isSelected ? 'is-selected' : ''} rounded-xl border border-transparent flex flex-col items-center justify-start p-1.5 sm:p-2 min-h-[56px] sm:min-h-[76px]" onclick="selectDay('${iso}')">
+                        <span class="text-xs sm:text-sm font-semibold ${isToday ? 'text-blue-300' : 'text-white'}">${d}</span>
+                        <div class="flex gap-0.5 mt-1.5 flex-wrap justify-center">
+                            ${dayEvents.slice(0, 3).map(() => `<span class="event-dot"></span>`).join('')}
+                        </div>
+                    </div>`;
+            }
+
+            document.getElementById('calendarGrid').innerHTML = cellsHTML;
+            renderDayEventsPanel();
+        }
+
+        function renderDayEventsPanel() {
+            const panel = document.getElementById('dayEventsPanel');
+            if (!selectedDate) { panel.innerHTML = ''; return; }
+
+            const d = new Date(selectedDate + 'T00:00:00');
+            const label = d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+            const dayEvents = eventsOnDate(selectedDate);
+
+            let bodyHTML;
+            if (dayEvents.length === 0) {
+                bodyHTML = `
+                    <div class="flex flex-col items-center justify-center py-8 text-center opacity-70">
+                        <i data-lucide="calendar-x" class="w-9 h-9 text-purple-400 mb-3 opacity-50"></i>
+                        <p class="text-white text-sm font-medium">No events on this day.</p>
+                    </div>`;
+            } else {
+                bodyHTML = `<div class="flex flex-col gap-4">${dayEvents.map(ev => renderEventCard(ev)).join('')}</div>`;
+            }
+
+            panel.innerHTML = `
+                <div class="flex items-center gap-2 pb-3 border-b border-purple-500/20">
+                    <i data-lucide="calendar-check" class="w-4 h-4 text-purple-300"></i>
+                    <h4 class="text-sm sm:text-base font-bold text-white">${label}</h4>
+                </div>
+                ${bodyHTML}
+            `;
+            lucide.createIcons();
+        }
+
+        // ---------- Upcoming List ----------
+        function renderUpcomingList() {
+            const container = document.getElementById('upcomingList');
+            const now = new Date();
+            now.setHours(0, 0, 0, 0);
+
+            const upcoming = EVENTS
+                .filter(ev => new Date(ev.date + 'T00:00:00') >= now)
+                .sort((a, b) => new Date(a.date + 'T' + (a.startTime || '00:00')) - new Date(b.date + 'T' + (b.startTime || '00:00')));
+
+            if (upcoming.length === 0) {
+                container.innerHTML = `
+                    <div class="flex flex-col items-center justify-center p-10 text-center opacity-70">
+                        <i data-lucide="calendar-x" class="w-12 h-12 text-purple-400 mb-4 opacity-50"></i>
+                        <p class="text-white font-medium">No upcoming events right now.</p>
+                        <p class="text-xs text-purple-200 mt-2">Check back later for new activities!</p>
+                    </div>`;
+                lucide.createIcons();
+                return;
+            }
+
+            container.innerHTML = upcoming.map(ev => renderEventCard(ev, true)).join('');
+            lucide.createIcons();
+        }
+
+        // ---------- Shared Event Card ----------
+        function renderEventCard(ev, withDateBadge) {
+            const evDate = new Date(ev.date + 'T00:00:00');
+            const month = evDate.toLocaleString('default', { month: 'short' }).toUpperCase();
+            const day = evDate.getDate();
+
+            let timeDisplay = '';
+            if (ev.startTime) {
+                timeDisplay = `<div class="flex items-center gap-1.5 whitespace-nowrap"><i data-lucide="clock" class="w-3.5 h-3.5 text-purple-400"></i> ${formatTimeDisplay(ev.startTime)}${ev.endTime ? ' - ' + formatTimeDisplay(ev.endTime) : ''}</div>`;
+            }
+
+            const dateBadge = withDateBadge ? `
+                <div class="flex-shrink-0 flex flex-col items-center justify-center w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-purple-500/20 to-blue-500/20 border border-purple-400/30 shadow-inner">
+                    <span class="text-[10px] font-bold text-purple-300 tracking-wider -mb-1">${month}</span>
+                    <span class="text-xl sm:text-2xl font-extrabold text-white">${day}</span>
+                </div>` : '';
+
+            return `
+                <div class="night-glass-card-subtle p-4 sm:p-5 rounded-2xl flex flex-col sm:flex-row gap-4 sm:gap-5 items-start sm:items-center group hover:border-purple-400/50 transition-all duration-300 fade-in">
+                    ${dateBadge}
+                    <div class="flex-1 min-w-0">
+                        <h4 class="text-base sm:text-lg font-bold text-white mb-1 leading-tight">${escapeHTML(ev.title)}</h4>
+                        <div class="flex flex-wrap items-center gap-y-1 gap-x-4 text-xs font-medium text-purple-200/80 mb-2">
+                            ${timeDisplay}
+                            ${ev.location ? `<div class="flex items-center gap-1.5 truncate"><i data-lucide="map-pin" class="w-3.5 h-3.5 text-purple-400"></i> ${escapeHTML(ev.location)}</div>` : ''}
+                        </div>
+                        ${ev.desc ? `<p class="text-xs text-purple-200/60 leading-relaxed">${escapeHTML(ev.desc)}</p>` : ''}
+                    </div>
+                    <div class="relative addcal-wrap flex-shrink-0 w-full sm:w-auto">
+                        <button onclick="toggleAddCal(event, '${ev.id}')" class="w-full flex items-center justify-center gap-2 night-btn-link px-4 py-2.5 rounded-xl text-xs font-bold text-white">
+                            <i data-lucide="calendar-plus" class="w-3.5 h-3.5 text-purple-400"></i> Add to Calendar <i data-lucide="chevron-down" class="w-3 h-3 text-purple-400"></i>
+                        </button>
+                        <div id="addcal-menu-${ev.id}" class="hidden absolute right-0 mt-2 w-52 night-glass-card rounded-2xl p-2 z-50 flex flex-col gap-1 shadow-2xl">
+                            <a href="${generateGoogleLink(ev)}" target="_blank" rel="noopener" class="addcal-item"><i data-lucide="chrome" class="w-3.5 h-3.5"></i> Google Calendar</a>
+                            <a href="${generateOutlookLink(ev, false)}" target="_blank" rel="noopener" class="addcal-item"><i data-lucide="mail" class="w-3.5 h-3.5"></i> Outlook.com</a>
+                            <a href="${generateOutlookLink(ev, true)}" target="_blank" rel="noopener" class="addcal-item"><i data-lucide="briefcase" class="w-3.5 h-3.5"></i> Office 365</a>
+                            <a href="${generateYahooLink(ev)}" target="_blank" rel="noopener" class="addcal-item"><i data-lucide="calendar" class="w-3.5 h-3.5"></i> Yahoo Calendar</a>
+                            <button onclick="downloadICS('${ev.id}')" class="addcal-item w-full text-left"><i data-lucide="apple" class="w-3.5 h-3.5"></i> Apple / iCal (.ics)</button>
+                        </div>
+                    </div>
+                </div>`;
+        }
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.addcal-wrap')) {
+                document.querySelectorAll('[id^="addcal-menu-"]').forEach(m => m.classList.add('hidden'));
+            }
+        });
+
+        function toggleAddCal(e, id) {
+            e.stopPropagation();
+            const menu = document.getElementById(`addcal-menu-${id}`);
+            const isHidden = menu.classList.contains('hidden');
+            document.querySelectorAll('[id^="addcal-menu-"]').forEach(m => m.classList.add('hidden'));
+            if (isHidden) menu.classList.remove('hidden');
+        }
+
+        // ---------- Formatting ----------
+        function formatTimeDisplay(timeStr) {
+            if (!timeStr) return '';
+            const [h, m] = timeStr.split(':');
+            const d = new Date();
+            d.setHours(parseInt(h), parseInt(m));
+            return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+        }
+
+        // ---------- Add-to-Calendar link generators ----------
+        function getStartEnd(ev) {
+            if (ev.startTime) {
+                const start = new Date(`${ev.date}T${ev.startTime}`);
+                let end;
+                if (ev.endTime) {
+                    end = new Date(`${ev.date}T${ev.endTime}`);
+                    if (end < start) end.setDate(end.getDate() + 1);
+                } else {
+                    end = new Date(start);
+                    end.setHours(end.getHours() + 2);
+                }
+                return { start, end, allDay: false };
+            }
+            const start = new Date(ev.date + 'T00:00:00');
+            const end = new Date(start);
+            end.setDate(end.getDate() + 1);
+            return { start, end, allDay: true };
+        }
+
+        function toUTCStamp(d) { return d.toISOString().replace(/-|:|\.\d\d\d/g, ''); }
+        function toDateOnlyStamp(d) { return d.toISOString().split('T')[0].replace(/-/g, ''); }
+
+        function generateGoogleLink(ev) {
+            const { start, end, allDay } = getStartEnd(ev);
+            const dates = allDay ? `${toDateOnlyStamp(start)}/${toDateOnlyStamp(end)}` : `${toUTCStamp(start)}/${toUTCStamp(end)}`;
+            const params = new URLSearchParams({ action: 'TEMPLATE', text: ev.title || '', dates, details: ev.desc || '', location: ev.location || '' });
+            return `https://calendar.google.com/calendar/render?${params.toString()}`;
+        }
+
+        function generateOutlookLink(ev, work) {
+            const { start, end, allDay } = getStartEnd(ev);
+            const host = work ? 'https://outlook.office.com' : 'https://outlook.live.com';
+            const params = new URLSearchParams({
+                path: '/calendar/action/compose', rru: 'addevent',
+                subject: ev.title || '', startdt: start.toISOString(), enddt: end.toISOString(),
+                body: ev.desc || '', location: ev.location || '', allday: allDay ? 'true' : 'false'
+            });
+            return `${host}/calendar/0/deeplink/compose?${params.toString()}`;
+        }
+
+        function generateYahooLink(ev) {
+            const { start, end, allDay } = getStartEnd(ev);
+            const durMs = end - start;
+            const durH = Math.max(0, Math.floor(durMs / 3600000));
+            const durM = Math.max(0, Math.floor((durMs % 3600000) / 60000));
+            const dur = `${pad2(durH)}${pad2(durM)}`;
+            const st = allDay ? toDateOnlyStamp(start) : toUTCStamp(start);
+            const params = new URLSearchParams({ v: '60', view: 'd', type: '20', title: ev.title || '', st, dur, desc: ev.desc || '', in_loc: ev.location || '' });
+            return `https://calendar.yahoo.com/?${params.toString()}`;
+        }
+
+        function downloadICS(id) {
+            const ev = EVENTS_BY_ID[id];
+            if (!ev) return;
+            const { start, end, allDay } = getStartEnd(ev);
+            const now = toUTCStamp(new Date());
+
+            const safeTitle = (ev.title || '').replace(/,/g, '\\,');
+            const safeDesc = (ev.desc || '').replace(/\n/g, '\\n').replace(/,/g, '\\,');
+            const safeLocation = (ev.location || '').replace(/,/g, '\\,');
+
+            const dtStartLine = allDay ? `DTSTART;VALUE=DATE:${toDateOnlyStamp(start)}` : `DTSTART:${toUTCStamp(start)}`;
+            const dtEndLine = allDay ? `DTEND;VALUE=DATE:${toDateOnlyStamp(end)}` : `DTEND:${toUTCStamp(end)}`;
+
+            const icsData = [
+                'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//CAB GCU Calendar//EN', 'BEGIN:VEVENT',
+                `UID:${id}@cabgcu`, `DTSTAMP:${now}`, dtStartLine, dtEndLine,
+                `SUMMARY:${safeTitle}`, `DESCRIPTION:${safeDesc}`, `LOCATION:${safeLocation}`,
+                'END:VEVENT', 'END:VCALENDAR'
+            ].join('\n');
+
+            const blob = new Blob([icsData], { type: 'text/calendar;charset=utf-8' });
+            const link = document.createElement('a');
+            link.href = window.URL.createObjectURL(blob);
+            link.setAttribute('download', `${(safeTitle || 'event').replace(/ /g, '_')}.ics`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(link.href);
+        }
+
+        lucide.createIcons();
+    </script>
+</body>
+</html>
