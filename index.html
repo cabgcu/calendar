@@ -296,6 +296,7 @@
         }
 
         function switchTab(tab) {
+            closeAddCalMenu();
             const isCal = tab === 'calendar';
             document.getElementById('calendarView').style.display = isCal ? 'flex' : 'none';
             document.getElementById('listView').style.display = isCal ? 'none' : 'block';
@@ -317,17 +318,20 @@
 
         // ---------- Calendar Grid ----------
         function changeMonth(delta) {
+            closeAddCalMenu();
             viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + delta, 1);
             renderCalendar();
         }
 
         function goToday() {
+            closeAddCalMenu();
             viewDate = new Date();
             selectedDate = todayISO();
             renderCalendar();
         }
 
         function selectDay(iso) {
+            closeAddCalMenu();
             selectedDate = iso;
             renderCalendar();
         }
@@ -448,33 +452,97 @@
                         </div>
                         ${ev.desc ? `<p class="text-xs text-purple-200/60 leading-relaxed">${escapeHTML(ev.desc)}</p>` : ''}
                     </div>
-                    <div class="relative addcal-wrap flex-shrink-0 w-full sm:w-auto">
+                    <div class="addcal-wrap flex-shrink-0 w-full sm:w-auto">
                         <button onclick="toggleAddCal(event, '${ev.id}')" class="w-full flex items-center justify-center gap-2 night-btn-link px-4 py-2.5 rounded-xl text-xs font-bold text-white">
                             <i data-lucide="calendar-plus" class="w-3.5 h-3.5 text-purple-400"></i> Add to Calendar <i data-lucide="chevron-down" class="w-3 h-3 text-purple-400"></i>
                         </button>
-                        <div id="addcal-menu-${ev.id}" class="hidden absolute right-0 mt-2 w-52 night-glass-card rounded-2xl p-2 z-50 flex flex-col gap-1 shadow-2xl">
-                            <a href="${generateGoogleLink(ev)}" target="_blank" rel="noopener" class="addcal-item"><i data-lucide="chrome" class="w-3.5 h-3.5"></i> Google Calendar</a>
-                            <a href="${generateOutlookLink(ev, false)}" target="_blank" rel="noopener" class="addcal-item"><i data-lucide="mail" class="w-3.5 h-3.5"></i> Outlook.com</a>
-                            <a href="${generateOutlookLink(ev, true)}" target="_blank" rel="noopener" class="addcal-item"><i data-lucide="briefcase" class="w-3.5 h-3.5"></i> Office 365</a>
-                            <a href="${generateYahooLink(ev)}" target="_blank" rel="noopener" class="addcal-item"><i data-lucide="calendar" class="w-3.5 h-3.5"></i> Yahoo Calendar</a>
-                            <button onclick="downloadICS('${ev.id}')" class="addcal-item w-full text-left"><i data-lucide="apple" class="w-3.5 h-3.5"></i> Apple / iCal (.ics)</button>
-                        </div>
                     </div>
                 </div>`;
         }
 
+        function addCalMenuItemsHTML(ev) {
+            return `
+                <a href="${generateGoogleLink(ev)}" target="_blank" rel="noopener" class="addcal-item"><i data-lucide="chrome" class="w-3.5 h-3.5"></i> Google Calendar</a>
+                <a href="${generateOutlookLink(ev, false)}" target="_blank" rel="noopener" class="addcal-item"><i data-lucide="mail" class="w-3.5 h-3.5"></i> Outlook.com</a>
+                <a href="${generateOutlookLink(ev, true)}" target="_blank" rel="noopener" class="addcal-item"><i data-lucide="briefcase" class="w-3.5 h-3.5"></i> Office 365</a>
+                <a href="${generateYahooLink(ev)}" target="_blank" rel="noopener" class="addcal-item"><i data-lucide="calendar" class="w-3.5 h-3.5"></i> Yahoo Calendar</a>
+                <button onclick="downloadICS('${ev.id}')" class="addcal-item w-full text-left"><i data-lucide="apple" class="w-3.5 h-3.5"></i> Apple / iCal (.ics)</button>
+            `;
+        }
+
+        // The dropdown lives in a single body-level element (a "portal") rather than
+        // nested inside each event card, because .night-glass-card-subtle's
+        // backdrop-filter creates a new stacking context per card — an absolutely
+        // positioned menu trapped inside one card's context always renders behind
+        // a later sibling card no matter its z-index.
+        function getAddCalMenu() {
+            let menu = document.getElementById('globalAddCalMenu');
+            if (!menu) {
+                menu = document.createElement('div');
+                menu.id = 'globalAddCalMenu';
+                menu.className = 'hidden fixed w-52 night-glass-card rounded-2xl p-2 z-[9999] flex flex-col gap-1 shadow-2xl';
+                document.body.appendChild(menu);
+            }
+            return menu;
+        }
+
+        function closeAddCalMenu() {
+            const menu = document.getElementById('globalAddCalMenu');
+            if (!menu) return;
+            menu.classList.add('hidden');
+            delete menu.dataset.openId;
+            menu._anchorBtn = null;
+        }
+
+        function positionAddCalMenu(btn, menu) {
+            const rect = btn.getBoundingClientRect();
+            const menuWidth = menu.offsetWidth || 208;
+            const menuHeight = menu.offsetHeight || 220;
+            let left = rect.right - menuWidth;
+            left = Math.max(8, Math.min(left, window.innerWidth - menuWidth - 8));
+            let top = rect.bottom + 8;
+            if (top + menuHeight > window.innerHeight - 8) {
+                top = Math.max(8, rect.top - menuHeight - 8);
+            }
+            menu.style.left = `${left}px`;
+            menu.style.top = `${top}px`;
+        }
+
+        // Reposition (rather than close) on scroll/resize: some browsers fire a
+        // scroll event immediately after the click that opened the menu (e.g. to
+        // bring a focused element into view), which would otherwise close the
+        // menu the instant it opens.
+        function repositionOpenAddCalMenu() {
+            const menu = document.getElementById('globalAddCalMenu');
+            if (!menu || menu.classList.contains('hidden') || !menu._anchorBtn) return;
+            if (!document.body.contains(menu._anchorBtn)) { closeAddCalMenu(); return; }
+            positionAddCalMenu(menu._anchorBtn, menu);
+        }
+
         document.addEventListener('click', (e) => {
-            if (!e.target.closest('.addcal-wrap')) {
-                document.querySelectorAll('[id^="addcal-menu-"]').forEach(m => m.classList.add('hidden'));
+            if (!e.target.closest('.addcal-wrap') && !e.target.closest('#globalAddCalMenu')) {
+                closeAddCalMenu();
             }
         });
+        window.addEventListener('scroll', repositionOpenAddCalMenu, true);
+        window.addEventListener('resize', repositionOpenAddCalMenu);
 
         function toggleAddCal(e, id) {
             e.stopPropagation();
-            const menu = document.getElementById(`addcal-menu-${id}`);
-            const isHidden = menu.classList.contains('hidden');
-            document.querySelectorAll('[id^="addcal-menu-"]').forEach(m => m.classList.add('hidden'));
-            if (isHidden) menu.classList.remove('hidden');
+            const menu = getAddCalMenu();
+            const btn = e.currentTarget;
+            if (!menu.classList.contains('hidden') && menu.dataset.openId === id) {
+                closeAddCalMenu();
+                return;
+            }
+            const ev = EVENTS_BY_ID[id];
+            if (!ev) return;
+            menu.innerHTML = addCalMenuItemsHTML(ev);
+            menu.dataset.openId = id;
+            menu._anchorBtn = btn;
+            menu.classList.remove('hidden');
+            positionAddCalMenu(btn, menu);
+            lucide.createIcons();
         }
 
         // ---------- Formatting ----------
